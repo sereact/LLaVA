@@ -144,8 +144,7 @@ class LlavaMetaForCausalLM(ABC):
 
     def prepare_inputs_labels_for_multimodal(
         self, input_ids, position_ids, attention_mask, past_key_values, labels,
-        images, image_sizes=None
-    ):
+        images, image_sizes=None, crop_images = None, crop_image_sizes = None):
         vision_tower = self.get_vision_tower()
         if vision_tower is None or images is None or input_ids.shape[1] == 1:
             return input_ids, position_ids, attention_mask, past_key_values, None, labels
@@ -196,8 +195,29 @@ class LlavaMetaForCausalLM(ABC):
                             ), dim=0)
                     new_image_features.append(image_feature)
                 image_features = new_image_features
+            
             else:
                 raise ValueError(f"Unexpected mm_patch_merge_type: {self.config.mm_patch_merge_type}")
+
+            if crop_images is not None:
+                crop_images = crop_images[0]
+                if type(crop_images) is list:
+                    crop_images = [x.unsqueeze(0) if x.ndim == 3 else x for x in crop_images]
+                concat_crop_images = torch.stack([image for image in crop_images], dim=0)
+                crop_features = self.encode_images(concat_crop_images)
+                # crop_features = crop_features.flatten(0, -2)
+                new_crop_image_features = []
+                for image_idx, image_feature in enumerate(crop_features):
+                    if image_feature.shape[0] > 0:
+                        image_feature = image_feature.permute(1,0)
+                        image_feature = torch.cat((
+                            image_feature,
+                            self.model.image_newline[:, None].expand(*image_feature.shape[:-1], 1).to(image_feature.device)
+                        ), dim=-1)
+                        image_feature = image_feature.transpose(0, 1)
+                        new_crop_image_features.append(image_feature)
+                image_features[0] = torch.cat((image_features[0], *new_crop_image_features), 0)
+
         else:
             image_features = self.encode_images(images)
 
@@ -271,7 +291,8 @@ class LlavaMetaForCausalLM(ABC):
             new_labels.append(cur_new_labels)
 
         # Truncate sequences to max length as image embeddings can make the sequence longer
-        tokenizer_model_max_length = getattr(self.config, 'tokenizer_model_max_length', None)
+        # tokenizer_model_max_length = getattr(self.config, 'tokenizer_model_max_length', None)
+        tokenizer_model_max_length = 32000
         if tokenizer_model_max_length is not None:
             new_input_embeds = [x[:tokenizer_model_max_length] for x in new_input_embeds]
             new_labels = [x[:tokenizer_model_max_length] for x in new_labels]
@@ -321,6 +342,7 @@ class LlavaMetaForCausalLM(ABC):
         if _position_ids is None:
             position_ids = None
 
+        print(new_input_embeds.shape)
         return None, position_ids, attention_mask, past_key_values, new_input_embeds, new_labels
 
     def initialize_vision_tokenizer(self, model_args, tokenizer):

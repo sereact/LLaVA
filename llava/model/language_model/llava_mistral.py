@@ -68,6 +68,8 @@ class LlavaMistralForCausalLM(MistralForCausalLM, LlavaMetaForCausalLM):
         images: Optional[torch.FloatTensor] = None,
         image_sizes: Optional[List[List[int]]] = None,
         return_dict: Optional[bool] = None,
+        crop_images: Optional[List[torch.FloatTensor]] = None,
+        crop_image_sizes: Optional[List[List[List[int]]]] = None 
     ) -> Union[Tuple, CausalLMOutputWithPast]:
 
         if inputs_embeds is None:
@@ -85,7 +87,9 @@ class LlavaMistralForCausalLM(MistralForCausalLM, LlavaMetaForCausalLM):
                 past_key_values,
                 labels,
                 images,
-                image_sizes
+                image_sizes,
+                crop_images = crop_images,
+                crop_image_sizes = crop_image_sizes
             )
 
         return super().forward(
@@ -129,7 +133,9 @@ class LlavaMistralForCausalLM(MistralForCausalLM, LlavaMetaForCausalLM):
                 None,
                 None,
                 images,
-                image_sizes=image_sizes
+                image_sizes=image_sizes,
+                # crop_images = kwargs['crop_images'],
+                # crop_image_sizes = kwargs['crop_image_sizes']
             )
         else:
             inputs_embeds = self.get_model().embed_tokens(inputs)
